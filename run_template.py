@@ -85,7 +85,9 @@ class ModelArguments:
     )
     use_early_stopping: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to use early stop. The metric is set in --metric-for-best-model."},
+        metadata={
+            "help": "Whether to use early stop. Choose metric with --metric-for-best-model and --greater_is_better."
+        },
     )
     early_stopping_patience: Optional[int] = field(
         default=3,
@@ -545,6 +547,8 @@ def main():
                 checkpoint = last_checkpoint
             else:
                 checkpoint = get_last_checkpoint(training_args.output_dir)
+        elif checkpoint in ["False", "false", "0", 0]:
+            checkpoint = None
 
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
 
