@@ -18,6 +18,7 @@ from transformers import (
     HfArgumentParser,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
+    EarlyStoppingCallback,
 )
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -30,7 +31,8 @@ logger = logging.getLogger("__name__")
 @dataclass
 class ModelArguments:
     """
-    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
+    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from;
+    and addtional training arguments.
     """
 
     model_name_or_path: str = field(
@@ -80,6 +82,18 @@ class ModelArguments:
     device_map: Optional[str] = field(
         default="auto",
         metadata={"help": "Where to place the model weight blocks"},
+    )
+    use_early_stopping: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use early stop. The metric is set in --metric-for-best-model."},
+    )
+    early_stopping_patience: Optional[int] = field(
+        default=3,
+        metadata={"help": "The number of times to wait for the metric to improve before early stop."},
+    )
+    early_stopping_threshold: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "The threshold to measure the improvement of the metric."},
     )
 
 
@@ -267,7 +281,7 @@ def main():
         load_in_8bit=model_args.load_in_8bit,
         device_map=model_args.device_map if not training_args.deepspeed else None,
     )
-    
+
     # 3.1 Prepare LoRA model
     # Read more at https://huggingface.co/docs/peft/quicktour
     if model_args.use_lora:
@@ -483,7 +497,7 @@ def main():
         result = {k: round(v, 4) for k, v in result.items()}
         return result
 
-    # 5. Trainer
+    # 5. Set up Trainer
     # Read more at https://huggingface.co/docs/transformers/main_classes/trainer
     logger.info("Training/evaluation parameters %s", training_args)
 
@@ -496,12 +510,21 @@ def main():
             raise ValueError(
                 "`--push_to_hub` require one of the followings: `--hub_token`, `huggingface-cli login`, or `HUGGING_FACE_HUB_TOKEN`."
             )
-        
+
         if not training_args.hub_model_id:
             training_args.hub_model_id = model_args.model_name_or_path
 
     if training_args.report_to in ["all", "wandb"]:
         wandb.login(key=os.environ["WANDB_API_KEY"])
+
+    # Callbacks
+    callbacks = []
+    if model_args.use_early_stopping:
+        early_stopping_callback = EarlyStoppingCallback(
+            early_stopping_patience=model_args.early_stopping_patience,
+            early_stopping_threshold=model_args.early_stopping_threshold,
+        )
+        callbacks.append(early_stopping_callback)
 
     trainer = Seq2SeqTrainer(
         model=model,
@@ -510,6 +533,7 @@ def main():
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
         compute_metrics=compute_metrics,
+        callbacks=callbacks,
     )
 
     # 6. Training
