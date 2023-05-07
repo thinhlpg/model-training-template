@@ -1,5 +1,5 @@
 deepspeed run_template.py\
-    --deepspeed="configs/ds_config.json"\
+    --deepspeed="configs/ds_config_zero0.json"\
     --do_train\
     --do_eval\
     --resume_from_checkpoint="last-checkpoint"\
