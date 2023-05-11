@@ -131,7 +131,7 @@ class DataTrainingArguments:
         default=8,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
-    max_seq_length: int = field(
+    max_input_length: Optional[int] = field(
         default=384,
         metadata={
             "help": (
@@ -140,12 +140,30 @@ class DataTrainingArguments:
             )
         },
     )
-    pad_to_max_length: bool = field(
-        default=True,
+    max_target_length: Optional[int] = field(
+        default=128,
         metadata={
             "help": (
-                "Whether to pad all samples to `max_seq_length`. If False, will pad the samples dynamically when"
-                " batching to the maximum length in the batch (which can be faster on GPU but will be slower on TPU)."
+                "The maximum total sequence length for target text after tokenization. Sequences longer "
+                "than this will be truncated, sequences shorter will be padded."
+            )
+        },
+    )
+    dynamic_pad_input: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to dynamically pad to the maximum input length in micro batches"
+                "If False, will pad to the mimimum of max_input_length and model_max_length."
+            )
+        },
+    )
+    dynamic_pad_target: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to dynamically pad to the maximum target length in micro batches"
+                "If False, will pad to the mimimum of max_target_length and model_max_length."
             )
         },
     )
@@ -335,6 +353,7 @@ def main():
             extension = "json"
         raw_datasets = load_dataset(extension, data_files=data_files, cache_dir=model_args.cache_dir)
 
+    # Auto data columns name detection
     if training_args.do_train:
         column_names = raw_datasets["train"].column_names
     elif training_args.do_eval:
@@ -361,15 +380,19 @@ def main():
     else:
         raise (KeyError("Document column must be named 'contexts', 'ctxs', or 'documents'"))
 
-    # Padding side determines if we do (question|context) or (context|question).
-    pad_on_right = tokenizer.padding_side == "right"
-
-    if data_args.max_seq_length > tokenizer.model_max_length:
+    # Auto set sequence length
+    if data_args.max_input_length > tokenizer.model_max_length:
         logger.warning(
-            f"The max_seq_length passed ({data_args.max_seq_length}) is larger than the maximum length for the"
-            f"model ({tokenizer.model_max_length}). Using max_seq_length={tokenizer.model_max_length}."
+            f"The max_input_length passed ({data_args.max_input_length}) is larger than the maximum length for the"
+            f"model ({tokenizer.model_max_length}). Using max_input_length={tokenizer.model_max_length}."
         )
-    max_seq_length = min(data_args.max_seq_length, tokenizer.model_max_length)
+    if data_args.max_target_length > tokenizer.model_max_length:
+        logger.warning(
+            f"The max_target_length passed ({data_args.max_target_length}) is larger than the maximum length for the"
+            f"model ({tokenizer.model_max_length}). Using max_target_length={tokenizer.model_max_length}."
+        )
+    max_input_length = min(data_args.max_input_length, tokenizer.model_max_length)
+    max_target_length = min(data_args.max_target_length, tokenizer.model_max_length)
 
     # 4.2 Preprocess function
     # Modify this function according to your task
@@ -377,14 +400,14 @@ def main():
         model_inputs = tokenizer(
             examples[question_column_name],
             truncation=True,
-            max_length=max_seq_length,
-            padding="max_length",
+            max_length=None if data_args.dynamic_pad_input else max_input_length,
+            padding=False if data_args.dynamic_pad_input else "max_length",
         )
         labels = tokenizer(
             [answers[0] for answers in examples[answer_column_name]],
             truncation=True,
-            max_length=max_seq_length,
-            padding="max_length",
+            max_length=None if data_args.dynamic_pad_target else max_target_length,
+            padding=False if data_args.dynamic_pad_target else "max_length",
         )
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
