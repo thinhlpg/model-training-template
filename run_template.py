@@ -256,7 +256,7 @@ def main():
         training_args.device,
         training_args.n_gpu,
         bool(training_args.local_rank != -1),
-        training_args.fp16,
+        training_args.fp16 or training_args.bf16,
     )
 
     # 3. Load pretrained model and tokenizer
@@ -463,7 +463,7 @@ def main():
         tokenizer,
         model=model,
         label_pad_token_id=label_pad_token_id,
-        pad_to_multiple_of=8 if training_args.fp16 else None,
+        pad_to_multiple_of=8 if training_args.fp16 or training_args.bf16 else None,
     )
 
     # 5. Metrics
